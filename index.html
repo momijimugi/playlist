@@ -1,0 +1,94 @@
+﻿<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>プレイリストスタジオ</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="brand__eyebrow">Playlist Studio</p>
+          <h1>プレイリストスタジオ</h1>
+        </div>
+
+        <div class="panel">
+          <label class="field">
+            <span>新しいプレイリスト</span>
+            <div class="field__row">
+              <input id="playlist-name" type="text" placeholder="例: 作業用BGM" />
+              <button id="create-playlist" class="button button--primary">作成</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="panel">
+          <div class="panel__header">
+            <h2>プレイリスト</h2>
+            <button id="delete-playlist" class="button button--ghost">削除</button>
+          </div>
+          <ul id="playlist-list" class="playlist-list"></ul>
+        </div>
+
+        <div class="panel">
+          <h2>バックアップ</h2>
+          <div class="backup">
+            <button id="export-json" class="button button--ghost">JSON保存</button>
+            <input id="import-json" type="file" accept="application/json" />
+            <label for="import-json" class="button button--ghost">JSON読み込み</label>
+          </div>
+          <p class="muted">音源データを含むため、ファイルサイズが大きくなる場合があります。</p>
+        </div>
+
+        <div class="panel hint">
+          <h3>ヒント</h3>
+          <p>曲をドラッグして順番を並び替え。クリックで再生。</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="tracks">
+          <div class="tracks__header">
+            <div>
+              <h2 id="playlist-title">プレイリスト未選択</h2>
+              <p id="playlist-count" class="muted">0 曲</p>
+            </div>
+            <div class="import">
+              <input id="file-input" type="file" accept="audio/*" multiple />
+              <label for="file-input" class="button button--primary">曲をインポート</label>
+            </div>
+          </div>
+
+          <ul id="track-list" class="track-list"></ul>
+        </section>
+      </main>
+    </div>
+
+    <section class="player-bar">
+      <div class="player-info">
+        <p class="eyebrow">Now Playing</p>
+        <h2 id="now-title">曲を選択</h2>
+        <p id="now-subtitle" class="muted">プレイリストから再生できます</p>
+      </div>
+      <div class="seek">
+        <div class="waveform">
+          <canvas id="waveform" height="80"></canvas>
+        </div>
+        <div class="seek__time">
+          <span id="time-current">0:00</span>
+          <span id="time-duration">0:00</span>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="prev-track" class="button button--ghost">前へ</button>
+        <button id="toggle-play" class="button button--primary">再生</button>
+        <button id="next-track" class="button button--ghost">次へ</button>
+      </div>
+    </section>
+
+    <audio id="audio" preload="metadata"></audio>
+  </body>
+</html>
