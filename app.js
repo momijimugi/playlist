@@ -5,11 +5,13 @@ const TRACK_STORE = 'tracks';
 
 const state = {
   playlists: [],
+  libraryTracks: [],
   activePlaylistId: null,
   currentIndex: null,
   currentTrackId: null,
   currentUrl: null,
   selectedIndex: null,
+  librarySelectedIndex: null,
   isSeeking: false,
   seekRatio: 0,
   waveformCache: new Map(),
@@ -28,6 +30,8 @@ const elements = {
   playlistTitle: document.getElementById('playlist-title'),
   playlistCount: document.getElementById('playlist-count'),
   fileInput: document.getElementById('file-input'),
+  libraryList: document.getElementById('library-list'),
+  libraryCount: document.getElementById('library-count'),
   exportJson: document.getElementById('export-json'),
   importJson: document.getElementById('import-json'),
   trackList: document.getElementById('track-list'),
@@ -39,6 +43,7 @@ const elements = {
   prevTrack: document.getElementById('prev-track'),
   togglePlay: document.getElementById('toggle-play'),
   nextTrack: document.getElementById('next-track'),
+  volume: document.getElementById('volume'),
   audio: document.getElementById('audio'),
 };
 
@@ -111,12 +116,10 @@ function drawWaveform() {
     ctx.moveTo(0, height / 2);
     ctx.lineTo(width, height / 2);
     ctx.stroke();
-    const playheadX = progress * width;
     ctx.strokeStyle = playedColor;
-    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX, height);
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width * progress, height / 2);
     ctx.stroke();
     return;
   }
@@ -129,17 +132,9 @@ function drawWaveform() {
     const barHeight = Math.max(2, value * height);
     const x = i * barWidth;
     const y = center - barHeight / 2;
-    ctx.fillStyle = baseColor;
+    ctx.fillStyle = i / barCount <= progress ? playedColor : baseColor;
     ctx.fillRect(x, y, Math.max(1, barWidth * 0.7), barHeight);
   }
-
-  const playheadX = progress * width;
-  ctx.strokeStyle = playedColor;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(playheadX, 0);
-  ctx.lineTo(playheadX, height);
-  ctx.stroke();
 }
 
 function getWaveformRatio(event) {
@@ -251,18 +246,7 @@ async function importJson(file) {
   const confirmed = confirm('現在のデータを上書きして読み込みますか？');
   if (!confirmed) return;
 
-  elements.audio.pause();
-  elements.audio.src = '';
-  if (state.currentUrl) {
-    URL.revokeObjectURL(state.currentUrl);
-    state.currentUrl = null;
-  }
-  elements.togglePlay.textContent = '再生';
-  elements.nowTitle.textContent = '曲を選択';
-  elements.nowSubtitle.textContent = 'プレイリストから再生できます';
-  state.currentIndex = null;
-  state.currentTrackId = null;
-  state.selectedIndex = null;
+  clearCurrentPlayback();
 
   await clearStore(PLAYLIST_STORE);
   await clearStore(TRACK_STORE);
@@ -271,6 +255,7 @@ async function importJson(file) {
   state.waveformTrackId = null;
   state.waveformProgress = 0;
   updateSeekUI();
+  state.libraryTracks = [];
 
   const importedTrackIds = new Set();
   for (const track of data.tracks) {
@@ -368,7 +353,7 @@ async function loadWaveformForTrack(track) {
     const context = ensureAudioContext();
     const buffer = await track.blob.arrayBuffer();
     const decoded = await context.decodeAudioData(buffer);
-    const peaks = generateWaveformPeaks(decoded, 160);
+    const peaks = generateWaveformPeaks(decoded, 320);
     state.waveformCache.set(track.id, peaks);
     if (state.waveformTrackId === track.id) {
       state.waveformPeaks = peaks;
@@ -466,6 +451,8 @@ async function loadPlaylists() {
   const playlists = await getAll(PLAYLIST_STORE);
   playlists.sort((a, b) => a.createdAt - b.createdAt);
   state.playlists = playlists;
+  state.libraryTracks = await getAll(TRACK_STORE);
+  state.libraryTracks.sort((a, b) => a.createdAt - b.createdAt);
 
   const stored = state.activePlaylistId;
   const exists = playlists.some((item) => item.id === stored);
@@ -476,6 +463,7 @@ async function loadPlaylists() {
   }
 
   renderPlaylists();
+  renderLibrary();
   await renderTracks();
 }
 
@@ -493,6 +481,105 @@ function renderPlaylists() {
       await renderTracks();
     });
     elements.playlistList.appendChild(li);
+  });
+}
+
+function updateLibraryMemoDisplay(trackId, memo) {
+  const item = elements.libraryList.querySelector(`[data-track-id="${trackId}"]`);
+  if (!item) return;
+  const memoNode = item.querySelector('.track-meta span');
+  if (memoNode) {
+    memoNode.textContent = memo ? memo : 'メモを入力';
+  }
+}
+
+function updateLibrarySelectionUI(shouldScroll = false) {
+  const items = elements.libraryList.querySelectorAll('li');
+  items.forEach((item) => {
+    const index = Number(item.dataset.index);
+    item.classList.toggle('selected', index === state.librarySelectedIndex);
+  });
+  if (shouldScroll) {
+    const active = elements.libraryList.querySelector('li.selected');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function setLibrarySelectedIndex(index, shouldScroll = false) {
+  if (state.libraryTracks.length === 0) {
+    state.librarySelectedIndex = null;
+    updateLibrarySelectionUI();
+    return;
+  }
+  const next = Math.min(Math.max(index, 0), state.libraryTracks.length - 1);
+  state.librarySelectedIndex = next;
+  updateLibrarySelectionUI(shouldScroll);
+}
+
+function renderLibrary() {
+  elements.libraryList.innerHTML = '';
+  elements.libraryCount.textContent = `${state.libraryTracks.length} 曲`;
+
+  if (state.libraryTracks.length === 0) {
+    state.librarySelectedIndex = null;
+  } else if (
+    state.librarySelectedIndex === null ||
+    state.librarySelectedIndex >= state.libraryTracks.length
+  ) {
+    state.librarySelectedIndex = 0;
+  }
+
+  state.libraryTracks.forEach((track, index) => {
+    if (!track) return;
+    const li = document.createElement('li');
+    li.dataset.trackId = track.id;
+    li.dataset.index = String(index);
+    if (index === state.librarySelectedIndex) {
+      li.classList.add('selected');
+    }
+
+    const number = document.createElement('span');
+    number.className = 'track-number';
+    number.textContent = String(index + 1).padStart(2, '0');
+
+    const meta = document.createElement('div');
+    meta.className = 'track-meta';
+    const title = document.createElement('strong');
+    title.textContent = track.name;
+    const subtitle = document.createElement('span');
+    subtitle.textContent = track.memo ? track.memo : 'メモを入力';
+    meta.appendChild(title);
+    meta.appendChild(subtitle);
+
+    const actions = document.createElement('div');
+    actions.className = 'track-actions';
+    const addButton = document.createElement('button');
+    addButton.className = 'button button--ghost';
+    addButton.textContent = '追加';
+    addButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await addTrackToPlaylist(track.id);
+    });
+
+    const playButton = document.createElement('button');
+    playButton.className = 'button button--ghost';
+    playButton.textContent = '再生';
+    playButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      playLibraryTrack(track.id, index);
+    });
+
+    actions.appendChild(playButton);
+    actions.appendChild(addButton);
+
+    li.appendChild(number);
+    li.appendChild(meta);
+    li.appendChild(actions);
+    li.addEventListener('click', () => {
+      setLibrarySelectedIndex(index);
+      playLibraryTrack(track.id, index);
+    });
+    elements.libraryList.appendChild(li);
   });
 }
 
@@ -525,6 +612,7 @@ async function renderTracks() {
     if (!track) return;
     const li = document.createElement('li');
     li.dataset.index = String(index);
+    li.dataset.trackId = track.id;
     li.draggable = true;
     if (track.id === state.currentTrackId) {
       li.classList.add('playing');
@@ -585,6 +673,7 @@ async function renderTracks() {
       if (track.id === state.currentTrackId) {
         elements.nowSubtitle.textContent = track.memo ? track.memo : 'メモを入力';
       }
+      updateLibraryMemoDisplay(track.id, track.memo);
       await putItem(TRACK_STORE, track);
     });
     memo.appendChild(memoField);
@@ -640,6 +729,42 @@ async function removeTrackFromPlaylist(index) {
   playlist.trackIds.splice(index, 1);
   await putItem(PLAYLIST_STORE, playlist);
   await loadPlaylists();
+}
+
+async function addTrackToPlaylist(trackId) {
+  const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
+  if (!playlist) {
+    alert('先にプレイリストを作成してください。');
+    return;
+  }
+  if (playlist.trackIds.includes(trackId)) return;
+  playlist.trackIds.push(trackId);
+  await putItem(PLAYLIST_STORE, playlist);
+  await loadPlaylists();
+}
+
+async function playLibraryTrack(trackId, index) {
+  const track = await getById(TRACK_STORE, trackId);
+  if (!track) return;
+
+  if (state.currentUrl) {
+    URL.revokeObjectURL(state.currentUrl);
+  }
+
+  state.currentIndex = null;
+  state.selectedIndex = null;
+  state.currentTrackId = trackId;
+  state.librarySelectedIndex = index;
+  state.currentUrl = URL.createObjectURL(track.blob);
+  elements.audio.src = state.currentUrl;
+  elements.audio.play();
+  elements.togglePlay.textContent = '一時停止';
+  elements.nowTitle.textContent = track.name;
+  elements.nowSubtitle.textContent = track.memo ? track.memo : 'メモを入力';
+  renderTracks();
+  renderLibrary();
+  updateSeekUI();
+  loadWaveformForTrack(track);
 }
 
 async function playTrackAt(index) {
@@ -703,12 +828,6 @@ function togglePlay() {
 }
 
 async function addTracks(files) {
-  const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
-  if (!playlist) {
-    alert('先にプレイリストを作成してください。');
-    return;
-  }
-
   for (const file of files) {
     const id = crypto.randomUUID();
     const track = {
@@ -720,10 +839,7 @@ async function addTracks(files) {
       createdAt: Date.now(),
     };
     await putItem(TRACK_STORE, track);
-    playlist.trackIds.push(id);
   }
-
-  await putItem(PLAYLIST_STORE, playlist);
   await loadPlaylists();
 }
 
@@ -771,6 +887,26 @@ function registerDnD() {
   });
 }
 
+function clearCurrentPlayback() {
+  elements.audio.pause();
+  elements.audio.src = '';
+  if (state.currentUrl) {
+    URL.revokeObjectURL(state.currentUrl);
+    state.currentUrl = null;
+  }
+  state.currentIndex = null;
+  state.currentTrackId = null;
+  state.selectedIndex = null;
+  state.librarySelectedIndex = null;
+  state.waveformTrackId = null;
+  state.waveformPeaks = null;
+  state.waveformProgress = 0;
+  elements.togglePlay.textContent = '再生';
+  elements.nowTitle.textContent = '曲を選択';
+  elements.nowSubtitle.textContent = 'プレイリストから再生できます';
+  updateSeekUI();
+}
+
 async function handleCreatePlaylist() {
   const name = elements.playlistNameInput.value.trim();
   if (!name) return;
@@ -789,20 +925,7 @@ async function handleDeletePlaylist() {
   if (!confirmed) return;
 
   if (state.currentTrackId && playlist.trackIds.includes(state.currentTrackId)) {
-    elements.audio.pause();
-    elements.audio.src = '';
-    state.currentIndex = null;
-    state.currentTrackId = null;
-    if (state.currentUrl) {
-      URL.revokeObjectURL(state.currentUrl);
-      state.currentUrl = null;
-    }
-    state.waveformTrackId = null;
-    state.waveformPeaks = null;
-    elements.togglePlay.textContent = '再生';
-    elements.nowTitle.textContent = '曲を選択';
-    elements.nowSubtitle.textContent = 'プレイリストから再生できます';
-    updateSeekUI();
+    clearCurrentPlayback();
   }
 
   await deleteItem(PLAYLIST_STORE, playlist.id);
@@ -834,6 +957,11 @@ function registerEvents() {
   elements.prevTrack.addEventListener('click', playPrev);
   elements.nextTrack.addEventListener('click', playNext);
   elements.togglePlay.addEventListener('click', togglePlay);
+  elements.volume.addEventListener('input', () => {
+    const value = Number(elements.volume.value);
+    elements.audio.volume = Number.isFinite(value) ? value : 0.8;
+    localStorage.setItem('playerVolume', String(elements.audio.volume));
+  });
   elements.audio.addEventListener('ended', playNext);
   elements.audio.addEventListener('play', startWaveformFollow);
   elements.audio.addEventListener('pause', stopWaveformFollow);
@@ -881,24 +1009,57 @@ function registerEvents() {
       return;
     }
 
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'Backspace') {
       const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
       if (!playlist || playlist.trackIds.length === 0) return;
+      if (state.selectedIndex === null) return;
       event.preventDefault();
-      const base =
-        state.selectedIndex === null
-          ? state.currentIndex !== null
-            ? state.currentIndex
-            : 0
-          : state.selectedIndex;
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      setSelectedIndex(base + delta, true);
+      removeTrackFromPlaylist(state.selectedIndex);
+      return;
     }
-  });
+
+    if (event.key === 'Enter') {
+      if (state.librarySelectedIndex === null) return;
+      const track = state.libraryTracks[state.librarySelectedIndex];
+      if (!track) return;
+      event.preventDefault();
+      addTrackToPlaylist(track.id);
+      return;
+    }
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
+    if (!playlist || playlist.trackIds.length === 0) return;
+    event.preventDefault();
+    const base =
+      state.selectedIndex === null
+        ? state.currentIndex !== null
+          ? state.currentIndex
+          : 0
+        : state.selectedIndex;
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    setSelectedIndex(base + delta, true);
+  }
+
+  if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+    if (state.libraryTracks.length === 0) return;
+    event.preventDefault();
+    const base = state.librarySelectedIndex === null ? 0 : state.librarySelectedIndex;
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    setLibrarySelectedIndex(base + delta, true);
+  }
+});
 }
 
 async function init() {
   state.activePlaylistId = getActivePlaylistId();
+  const storedVolume = Number(localStorage.getItem('playerVolume'));
+  if (Number.isFinite(storedVolume)) {
+    elements.audio.volume = Math.min(Math.max(storedVolume, 0), 1);
+    elements.volume.value = String(elements.audio.volume);
+  } else {
+    elements.audio.volume = Number(elements.volume.value);
+  }
   await loadPlaylists();
   registerDnD();
   registerEvents();

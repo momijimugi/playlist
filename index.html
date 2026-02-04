@@ -50,15 +50,26 @@
       </aside>
 
       <main class="main">
+        <section class="library">
+          <div class="tracks__header">
+            <div>
+              <h2>ライブラリ</h2>
+              <p id="library-count" class="muted">0 曲</p>
+            </div>
+            <div class="import">
+              <input id="file-input" type="file" accept="audio/*" multiple />
+              <label for="file-input" class="button button--primary">曲をインポート</label>
+            </div>
+          </div>
+
+          <ul id="library-list" class="track-list"></ul>
+        </section>
+
         <section class="tracks">
           <div class="tracks__header">
             <div>
               <h2 id="playlist-title">プレイリスト未選択</h2>
               <p id="playlist-count" class="muted">0 曲</p>
-            </div>
-            <div class="import">
-              <input id="file-input" type="file" accept="audio/*" multiple />
-              <label for="file-input" class="button button--primary">曲をインポート</label>
             </div>
           </div>
 
@@ -86,6 +97,10 @@
         <button id="prev-track" class="button button--ghost">前へ</button>
         <button id="toggle-play" class="button button--primary">再生</button>
         <button id="next-track" class="button button--ghost">次へ</button>
+        <div class="volume">
+          <span class="volume__label">Vol</span>
+          <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" />
+        </div>
       </div>
     </section>
 
